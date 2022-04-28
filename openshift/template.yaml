@@ -1,0 +1,149 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata: 
+name: pod-shell-template
+objects:
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    annotations:
+    labels:
+      app: ${NAME}
+      app.kubernetes.io/component: ${NAME}
+      app.kubernetes.io/instance: ${NAME}
+    name: ${NAME}
+    namespace: ${NAMESPACE}
+  spec:
+    lookupPolicy:
+      local: false
+- apiVersion: build.openshift.io/v1
+  kind: BuildConfig
+  metadata:
+    annotations:
+    labels:
+      app: ${NAME}
+      app.kubernetes.io/component: sleep
+      app.kubernetes.io/instance: sleep
+    name: ${NAME}
+    namespace: ${NAMESPACE}
+  spec:
+    failedBuildsHistoryLimit: 5
+    nodeSelector: null
+    output:
+      to:
+        kind: ImageStreamTag
+        name: ${NAME}:latest
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      git:
+        uri: ${GITREPO}
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage
+          name: registry.redhat.io/rhel8/python-39:latest
+      type: Docker
+    successfulBuildsHistoryLimit: 5
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    annotations:
+    labels:
+      app: ${NAME}
+      app.kubernetes.io/component: ${NAME}
+      app.kubernetes.io/instance: ${NAME}
+    name: ${NAME}
+    namespace: shell-template-xom
+    resourceVersion: "7476154"
+    uid: 98957c83-1f7d-48f7-8b43-2d49f0235e35
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      deploymentconfig: ${NAME}
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          deploymentconfig: ${NAME}
+      spec:
+        containers:
+          - image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/${NAME}:latest
+            imagePullPolicy: Always
+            name: ${NAME}
+            resources: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: ${MOUNTPATH}
+              name: ${PVCNAME}
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: ${PVCNAME}
+          persistentVolumeClaim:
+            claimName: ${PVCNAME}
+    test: false
+    triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - ${NAME}
+        from:
+          kind: ImageStreamTag
+          name: ${NAME}:latest
+          namespace: ${NAMESPACE}
+      type: ImageChange
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    finalizers:
+    - kubernetes.io/pvc-protection
+    name: ${PVCNAME}
+    namespace: ${NAMESPACE}
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: ${PVCSIZE}
+    volumeMode: Filesystem
+parameters: 
+  - description: Application name
+    name: NAME
+    required: true
+  - description: Namespace
+    name: NAMESPACE
+    required: true
+  - description: Git Repository
+    name: GITREPO
+    required: true
+  - description: PVC Name
+    name: PVCNAME
+    value: ${NAME}
+    required: true
+  - description: PVC Size
+    name: PVCSIZE
+    value: "1G"
+    required: true
+  - description: PVC mount path inside the pod
+    name: MOUNTPATH
+    value: "/data"
+    required: true
